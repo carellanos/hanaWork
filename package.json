@@ -17,12 +17,15 @@
     "start": "cds-serve"
   },
   "cds": {
-    "hana":{
-      "deploy-format":"hdbtable"
+    "hana": {
+      "deploy-format": "hdbtable"
     },
     "requires": {
       "db": {
-        "kind": "hana-cloud"
+        "kind": "sqlite",
+        "credentials": {
+          "database": "db.sqlite"
+        }
       }
     }
   }
