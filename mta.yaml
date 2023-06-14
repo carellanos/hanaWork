@@ -1,40 +1,102 @@
 _schema-version: '3.1'
-ID: HC_OFF_SUPPLIES
-version: 1.0.0
-description: "A simple CAP project."
+ID: .
+version: 3.0.0
+description: A simple CAP project.
 parameters:
   enable-parallel-deployments: true
 build-parameters:
   before-all:
     - builder: custom
       commands:
+        - npm install --production
         - npx -p @sap/cds-dk cds build --production
 modules:
+# --------------------- SERVER MODULE ------------------------
   - name: HC_OFF_SUPPLIES-srv
+# ------------------------------------------------------------  
     type: nodejs
     path: gen/srv
-    parameters:
-      buildpack: nodejs_buildpack
-    build-parameters:
-      builder: npm-ci
-    provides:
-      - name: srv-api # required by consumers of CAP services (e.g. approuter)
-        properties:
-          srv-url: ${default-url}
     requires:
       - name: HC_OFF_SUPPLIES-db
-
+      - name: HC_OFF_SUPPLIES-xsuaa
+      - name: HC_OFF_SUPPLIES-destination
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: '${default-url}'
+ # --------------------- SIDECAR MODULE ------------------------         
   - name: HC_OFF_SUPPLIES-db-deployer
+ # ------------------------------------------------------------   
     type: hdb
     path: gen/db
     parameters:
       buildpack: nodejs_buildpack
     requires:
       - name: HC_OFF_SUPPLIES-db
-
+      - name: HC_OFF_SUPPLIES-xsuaa
+# ------------------------------------------------------------      
+  - name: HC_OFF_SUPPLIES-approuter
+# ------------------------------------------------------------  
+    type: nodejs
+    path: approuter
+    requires:
+      - name: HC_OFF_SUPPLIES-xsuaa
+      - name: srv-api
+        group: destinations
+        properties:
+          forwardAuthToken: true
+          strictSSL: true
+          name: srv-binding
+          url: '~{srv-url}'
+    build-parameters:
+          requires:
+            - name: HC_OFF_SUPPLIES-app
+              artifacts:
+                - ./*
+              target-path: resources
+# ------------------------------------------------------------
+  - name: HC_OFF_SUPPLIES-app
+# ------------------------------------------------------------  
+    type: html5
+    path: app
+    build-parameters:
+      supported-platforms: []
 resources:
+# ------------------------------------------------------------
   - name: HC_OFF_SUPPLIES-db
+# ------------------------------------------------------------  
     type: com.sap.xs.hdi-container
     parameters:
       service: hana
       service-plan: hdi-shared
+    properties:
+      hdi-service-name: '${service-name}'
+# ------------------------------------------------------------
+  - name: HC_OFF_SUPPLIES-xsuaa
+# ------------------------------------------------------------
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service-plan: application
+      service: xsuaa
+      path: ./xs-security.json
+      config:
+        xsappname: 'HC_OFF_SUPPLIES-${space}'
+        oauth2-configuration:
+          redirect-uris:
+            - https://da3cdfcftrial-dev-hc-off-supplies-approuter.cfapps.us10-001.hana.ondemand.com/login/callback
+        role-collections:
+          - name: 'Vendor-${space}'
+            description: Read Access
+            role-template-references:
+              - $XSAPPNAME.Vendor
+          - name: 'ProcurementManager-${space}'
+            description: All Access
+            role-template-references:
+              - $XSAPPNAME.ProcurementManager
+# ------------------------------------------------------------  
+  - name: HC_OFF_SUPPLIES-destination
+# ------------------------------------------------------------  
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
